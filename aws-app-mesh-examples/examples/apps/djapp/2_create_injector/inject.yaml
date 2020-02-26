@@ -1,0 +1,125 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-app-mesh-inject-sa
+  namespace: appmesh-inject
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: aws-app-mesh-inject-cr
+rules:
+  - apiGroups: ["*"]
+    resources: ["replicasets"]
+    verbs: ["get"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: aws-app-mesh-inject-binding
+subjects:
+  - kind: ServiceAccount
+    name: aws-app-mesh-inject-sa
+    namespace: appmesh-inject
+    apiGroup: ""
+roleRef:
+  kind: ClusterRole
+  name: aws-app-mesh-inject-cr
+  apiGroup: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aws-app-mesh-inject
+  namespace: appmesh-inject
+  labels:
+    name: aws-app-mesh-inject
+spec:
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 8080
+  selector:
+    name: aws-app-mesh-inject
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: aws-app-mesh-inject
+  namespace: appmesh-inject
+  labels:
+    name: aws-app-mesh-inject
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: aws-app-mesh-inject
+      labels:
+        name: aws-app-mesh-inject
+    spec:
+      serviceAccountName: aws-app-mesh-inject-sa
+      containers:
+        - name: webhook
+          image: 602401143452.dkr.ecr.us-west-2.amazonaws.com/amazon/aws-app-mesh-inject:v0.1.0
+          env:
+            - name: APPMESH_REGION
+              value: 
+            - name: APPMESH_NAME
+              value: dj-app
+            - name: APPMESH_LOG_LEVEL
+              value: debug
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: 300m
+            requests:
+              memory: 500Mi
+              cpu: 300m
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTPS
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: aws-app-mesh-inject
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: aws-app-mesh-inject
+webhooks:
+  - name: aws-app-mesh-inject.aws.amazon.com
+    clientConfig:
+      service:
+        name: aws-app-mesh-inject
+        namespace: appmesh-inject
+        path: "/"
+      caBundle: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUN5RENDQWJDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFWTVJNd0VRWURWUVFERXdwcmRXSmwKY201bGRHVnpNQjRYRFRJd01ESXlOVEE1TlRnMU0xb1hEVE13TURJeU1qQTVOVGcxTTFvd0ZURVRNQkVHQTFVRQpBeE1LYTNWaVpYSnVaWFJsY3pDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBTFpGCnRxTGIzZFNCRnhmdFExWlVGdXpUbjlVV2VaY0c0dURnNHVZVHdpRVFQK0NCSndkMW4vWCtUR0tYSmRLTXNIY20KNlExZWwzQ0doRWNPTXJKS1d3U3IxYVZkTndEeWpHNnM1V3hjMlM0RGl2cGd2QWZqdjBrczA0R2tIeHNwcnRVLwpZT1pkVVFHZTFaYTVxNnN5MHZBR1FWQVByR1dhdmx0WDlGK2RIY0Q3YXIxZmplV2kzWGlUK0dqdlJZRDBwUjR3CjFicklsUVpFU1JGN1dXa1l2VHZEaWJ6bEpHNVVvcktkYnlkZDRVK1J6bE9FdFJLRERXcVZkUWx0ZkoyYnhhQWcKbzBTTHk4TmkyeWczcUE4R285WTJCT2lWRy90YU5yaVFtckViZUNVNk5SOXN5NTdPbS9lMDVXTE14ak8yTk85QwpETHpSZFRHOGYremZoT1hnTTBNQ0F3RUFBYU1qTUNFd0RnWURWUjBQQVFIL0JBUURBZ0trTUE4R0ExVWRFd0VCCi93UUZNQU1CQWY4d0RRWUpLb1pJaHZjTkFRRUxCUUFEZ2dFQkFEU0FsRTg0SGs1aU9DcjhITHZOTTBHMW11L0cKbmttaWVZekxQUFVqYXJpRTNaQ21xOEtZbWRtRzRJeVcwTkV2TlBpbXBUUVJ2RWRmZDc2TDkyZ0R3WTBaa0ZwOApsSzNhaFQ1dXE3aWw1NDA3TkEzVVhZOHZvZk9PelRQQmRqUnpMeDc5cWt5c0tITVJzWE5RSHBDRHdiNmoyQWhqClBCcUlqQ2dpUkZQOXZTNHRkZ0o3dUQ1d3FaNDJiQmNsaEp0Q0g0L3NlVHFrSGRZVmxCdkladTBkZ2NaNlIwbnEKUldFOE1lOFhlOWJTT2VWb0N0L0dtbDNkclp4Ly9Vc1M4Ym85bENBc3VSMjVYcXdzai8xS2g2TEswZnNLVlc1VQpwcFpYQjJULzFWTHErZVV6alZhendTTlZLYVhDUTFTL3duRElIbnQ2T0ZZZWhiZzkzU1kvNUVPNExFTT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="
+    rules:
+      - operations: ["CREATE","UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    failurePolicy: Ignore
+    namespaceSelector:
+      matchLabels:
+        appmesh.k8s.aws/sidecarInjectorWebhook: enabled

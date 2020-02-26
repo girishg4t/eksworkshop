@@ -1,0 +1,5 @@
+aws-app-mesh-examples/.env*
+aws-app-mesh-examples/examples/apps/colorapp/pkg/
+aws-app-mesh-examples/examples/apps/colorapp/bin
+aws-app-mesh-examples/.DS_Store
+aws-app-mesh-examples/.idea
